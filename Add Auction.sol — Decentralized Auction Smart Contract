@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+contract Auction{
+    
+    address payable public Auctioneer;
+    uint public StBlock;
+    uint public EndBlock;
+
+    enum Auc_state{Started, Running, Ended, Cancelled}
+    Auc_state public auctionState;
+
+    uint public highestPayableBid;
+    uint public bidInc;
+
+    address payable public highestBidder;
+
+    mapping(address=>uint) public bids;
+
+    constructor(){
+        Auctioneer =payable(msg.sender);
+        StBlock =block.number;
+        EndBlock=StBlock+240;
+        bidInc= 1 ether;
+
+    }
+    modifier onlyAuctioneer(){
+    require(msg.sender== Auctioneer, "Only Auctioneer can call this function");
+    _;
+    }
+    modifier NotAuctioneer(){
+        require(msg.sender != Auctioneer, "Auctioneer cannot bid");
+        _;
+    }
+    modifier OnlyStarted(){
+        require(auctionState== Auc_state.Started, "Auction not started");
+        _;
+    }
+     modifier OnlyRunning(){
+        require(auctionState==Auc_state.Running, "Auction is not running");
+        _;
+    }
+    modifier beforeEnding(){
+        require(block.number<EndBlock, "Auction has ended");
+        _;
+    }
+  
+    function StartAuction() public onlyAuctioneer OnlyStarted{
+        auctionState= Auc_state.Running;
+    }
+
+    function CancelAuc() public onlyAuctioneer{
+        auctionState= Auc_state.Cancelled;
+
+    }
+    function EndAuc() public onlyAuctioneer{
+        auctionState = Auc_state.Ended;
+
+    }
+    function min(uint a, uint b) pure private returns(uint){
+        if(a<=b)
+        return a;
+        else return b;
+    }
+    
+    function bid() payable public NotAuctioneer OnlyRunning beforeEnding{
+
+        require(msg.value>=1 ether, "Minimum 1 ether require");
+        
+        uint currentBid = bids[msg.sender]+msg.value;
+         
+         require (currentBid>highestPayableBid ,"bid is low" );
+         bids[msg.sender] = currentBid;
+
+        if(currentBid<bids[highestBidder]){
+            highestPayableBid = min(currentBid +bidInc, bids[highestBidder]);
+        }
+        else{
+            highestPayableBid = min(currentBid, bids[highestBidder]+ bidInc);
+            highestBidder = payable (msg.sender);
+        }
+    }
+    function FinalizedAuc() public {
+
+        require(
+            auctionState == Auc_state.Cancelled ||
+            auctionState == Auc_state.Ended ||
+            block.number > EndBlock, "Auction not finished"
+        );
+
+        require(msg.sender == Auctioneer || bids[msg.sender]>0);
+
+        address payable person;
+        uint value;
+        if (auctionState == Auc_state.Cancelled){
+            person = payable(msg.sender);
+            value = bids[msg.sender];
+        }
+        else{
+            if(msg.sender == Auctioneer){
+                person = Auctioneer;
+                value = highestPayableBid;
+            }
+            else{ 
+                if(msg.sender == highestBidder){
+                    person = highestBidder;
+                    value = bids[highestBidder]-highestPayableBid;
+
+                }
+                else{
+                    person = payable(msg.sender);
+                    value = bids[msg.sender];
+                }
+            }
+        }
+        bids[msg.sender]=0;
+        person.transfer(value);
+
+    }
+    }
